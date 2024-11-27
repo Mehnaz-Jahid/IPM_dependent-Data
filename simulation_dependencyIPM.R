@@ -230,9 +230,6 @@ y.max<- 1000
 
 sxy<- matrix(, M, 2)
 
-# Model_secr <- nimbleCode({
-##-----------------------------------------------------------------
-#------------------------------
 ## Activity centre locations
 for (i in 1:M) {
   sxy[i, 1] = runif(1, 0, x.max) 
@@ -262,37 +259,32 @@ N = apply(z, 2, sum)
 ### Observation model ###
 
 sigma = 50
-# p0_1 = 0.9
 
-p_0c<- 0.8 # detection probability of camera traps at AC# detection function from SECR as p0=p_c
-p_0h<- 0.6 # capture probability of the hair traps at AC# detection function from SECR as p0= p_h
+p_0c<- 0.8 # detection probability of camera traps at AC # detection function from SECR as p0=p_c
+p_0h<- 0.6 # capture probability of the hair traps at AC # detection function from SECR as p0= p_h
 p_0ch<- 0.5 # probability that the individual captured in both camera and hair traps at AC
 p_0capt<- p_0c+p_0h-p_0ch # Probability that the individual captured by either hair or camera traps at AC. detection prob. from SECR with p0=p_capt
 
 detector.xy<- matrix(, J, 2)
 # Trap locations
-for (i in 1:J) {
-  detector.xy[i, 1] = runif(1, 150, 850) 
-  detector.xy[i, 2] = runif(1, 150, 850)
+for (j in 1:J) {
+  detector.xy[j, 1] = runif(1, 150, 850) 
+  detector.xy[j, 2] = runif(1, 150, 850)
 }
 
 d_squared_1 = matrix (, M, J)
-#  p_1 = matrix (, M, J)
-# p_1<- array(, dim= c(M, J, K))
+
 p_c<- array(, dim= c(M, J, K))
 p_h<- array(, dim= c(M, J, K))
 p_ch<- array(, dim= c(M, J, K))
 p_capt<- array(, dim= c(M, J, K))
 
+y_hair<- array(0, dim= c(M, J, K, T))
+y_cam_indi<- array(0, dim= c(M, J, K, T)) # latent camera trap captures
 
-#  y_1 = matrix (, M, J)
-# y_1<- array(, dim= c(M, J, K, T))
-
-y_hair<- array(, dim= c(M, J, K, T))
-y_cam_indi<- array(, dim= c(M, J, K, T)) # latent camera trap captures
-y_cam_sum<- array(, dim= c(J, K, T)) 
-y_cam<- array(, dim= c(J, K, T)) # camera trap capt. history
-# y_12<- array(, dim= c(M, J, K, T))
+det_fun<- function (p0, d_squared_1) {
+p0 * exp(-d_squared_1/(2*sigma^2))
+}
 
 for (i in 1:M) {
   for(j in 1:J) {
@@ -300,42 +292,68 @@ for (i in 1:M) {
       for (t in 1:T) {
         d_squared_1[i, j] <- (sxy[i, 1] - detector.xy[j,1])^2 +
           (sxy[i, 2] - detector.xy[j,2])^2
-       # p_1[i, j, k] <- p0_1 * exp((-d_squared_1[i,j])/(2*sigma^2))
-        p_c[i, j, k]<- p_0c * exp((-d_squared_1[i,j])/(2*sigma^2))
-        p_h[i, j, k]<- p_0h * exp((-d_squared_1[i,j])/(2*sigma^2))
-        p_ch[i, j, k]<- p_0ch * exp((-d_squared_1[i,j])/(2*sigma^2))
-        p_capt[i, j, k]<- p_0capt * exp((-d_squared_1[i,j])/(2*sigma^2))
+        
+        p_c[i, j, k]<- det_fun(p_0c, d_squared_1[i, j])
+        p_h[i, j, k]<- det_fun(p_0h, d_squared_1[i, j])
+        p_ch[i, j, k]<- det_fun(p_0ch, d_squared_1[i, j])
+        p_capt[i, j, k]<- det_fun(p_0capt, d_squared_1[i, j])
+   #    p_c[i, j, k]<- p_0c * exp((-d_squared_1[i,j])/(2*sigma^2))
+   #   p_h[i, j, k]<- p_0h * exp((-d_squared_1[i,j])/(2*sigma^2))
+   #   p_ch[i, j, k]<- p_0ch * exp((-d_squared_1[i,j])/(2*sigma^2))
+   #   p_capt[i, j, k]<- p_0capt * exp((-d_squared_1[i,j])/(2*sigma^2))
         
         u_capt<- runif(1, 0, 1)
-        u<- runif(1,0,1)
         
-        if (u_capt>p_capt[i, j, k]*z[i, t] || u<p_h[i, j, k]*z[i, t]) {
-          y_hair[i, j, k, t]= 0
-          y_cam_indi[i, j, k, t] = 1 
-          y_cam_sum[j, k, t] <- sum(y_cam_indi[i, j, k, t])
-          y_cam[j, k, t] = ifelse(y_cam_sum[j, k, t]>0, 1, 0)
-        } 
-        
-        if (u_capt>p_capt[i, j, k]*z[i, t] || u<p_c[i, j, k]*z[i, t]) {
+        # if captured at all-
+        if (u_capt<p_capt[i, j, k]*z[i, t]) {
           y_hair[i, j, k, t]= 1
-          y_cam[j, k, t] = 0 
-          y_cam_sum[j, k, t] <- sum(y_cam_indi[i, j, k, t])
-          y_cam[j, k, t] = ifelse(y_cam_sum[j, k, t]>0, 1, 0)
-        } 
-        
-        if (u_capt>p_capt[i, j, k]*z[i, t] || u>p_h[i, j, k]*z[i, t]) {
-          y_hair[i, j, k, t]= 1
-          y_cam_indi[i, j, k, t] = 1 
-          y_cam_sum[j, k, t] <- sum(y_cam_indi[i, j, k, t])
-          y_cam[j, k, t] = ifelse(y_cam_sum[j, k, t]>0, 1, 0)
+          y_cam_indi[i, j, k, t] = 1
+          
+          # now we are checking whether it is not captured by the hair trap-
+          u_h<- runif(1,0,1)
+          if (u_h>(p_h[i, j, k]/p_capt[i, j, k])*z[i, t]) {
+            y_hair[i, j, k, t]= 0
+          }
+          
+          # whether it is not captured by the camera trap-
+          else{
+            u_c<- runif(1,0,1)
+            if (u_c>(p_c[i, j, k]/p_capt[i, j, k])*z[i, t]) {
+              y_cam_indi[i, j, k, t] = 0 
+            }
+          }
         }
-  #      y_1[i, j, k, t] = rbinom(1, 1, p_1[i, j, k]* z[i, t]) 
-  #      y_12[i, j, k, t] = rbinom(1, 1, p_1[i, j, k]* z[i, t]) # latent capture data
+        
       }
     }
   }
 }
-   
-y_hair[345, , , 1]     
-y_cam[, , 2] 
+  
+
+y_cam_sum<- array(, dim= c(J, K, T)) 
+y_cam<- array(, dim= c(J, K, T)) # camera trap capt. history
+
+y_cam_sum <- apply(y_cam_indi, c(2, 3, 4), sum) 
+y_cam = ifelse(y_cam_sum>0, 1, 0)
+
+#for (i in 1:M){
+#  for (j in 1:j){
+#    for (k in 1:K){
+#      for (t in 1:T){
+#        y_cam_sum[j, k, t] <- sum(y_cam_indi[,j,k,t])
+#        y_cam[j, k, t] = ifelse(y_cam_sum[j, k, t]>0, 1, 0)
+#      }
+#   }
+#  }
+#}
+
+
+
+z[3,1]
+y_hair[3, , , 1]  
+y_cam_indi[3, , , 1]
+y_cam_sum[,,1]
+y_cam[, , 1] 
+
+
 
